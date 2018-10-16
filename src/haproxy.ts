@@ -1,7 +1,7 @@
 import * as ssh from "node-ssh";
 import * as sha256 from "sha256";
 import { ILogger, LoggerFactory } from '@log4js-universal/logger';
-import { Configuration, IConfiguration, IConfigurationEntry, EType, IGlobalDB, IWebService } from "dockerproxy-commons";
+import { Configuration, IConfiguration, IConfigurationEntry, EType, IGlobalDB, IWebService } from "@dockate/commons";
 
 export class HAProxy implements IWebService {
     private static LOGGER: ILogger = LoggerFactory.getLogger("dockerproxy.Scheduler");
@@ -29,6 +29,7 @@ export class HAProxy implements IWebService {
             { name: 'haProxyForceHTTPS', mandatory: false, type: EType.BOOLEAN },
             { name: 'haProxySSLCertificatsPath', mandatory: false, type: EType.STRING },
             { name: 'haProxyReloadCommand', mandatory: true, type: EType.STRING },
+            { name: 'haProxyUseCAT', mandatory: false, type: EType.BOOLEAN },
         ];
     }
 
@@ -82,55 +83,84 @@ export class HAProxy implements IWebService {
                     });
                 }).then(() => {
                     // Write all configs files if necessary
-                    return connection.requestSFTP().then((sftp: any) => {
-                        const promisesWrite: Promise<boolean>[] = [];
-                        //Write frontend
-                        let content: string = "";
-                        if (config.haProxyHTTPSPort && config.haProxyForceHTTPS) {
-                            content = "frontend fronthttp";
-                            content += '\n\tbind *:' + config.haProxyHTTPPort;
-                            content += '\n\thttp-request redirect scheme https';
-                            content += '\n';
-                            content += '\nfrontend fronthttps';
-                            content += '\n\tbind *:' + config.haProxyHTTPSPort + ' ssl';
+                    const promisesWrite: Promise<boolean>[] = [];
+                    //Write frontend
+                    let content: string = "";
+                    if (config.haProxyHTTPSPort && config.haProxyForceHTTPS) {
+                        content = "frontend fronthttp";
+                        content += '\n\tbind *:' + config.haProxyHTTPPort;
+                        content += '\n\thttp-request redirect scheme https';
+                        content += '\n';
+                        content += '\nfrontend fronthttps';
+                        content += '\n\tbind *:' + config.haProxyHTTPSPort + ' ssl';
+                        frontends.forEach((frontend) => {
+                            frontend.domains.forEach((domain) => {
+                                content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                            });
+                        });
+                    } else {
+                        content = "frontend front";
+                        content += '\n\tbind *:' + config.haProxyHTTPPort;
+                        if (config.haProxyHTTPSPort) {
+                            content += '\n\tbind :' + config.haProxyHTTPSPort + ' ssl';
                             frontends.forEach((frontend) => {
                                 frontend.domains.forEach((domain) => {
                                     content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
                                 });
                             });
-                        } else {
-                            content = "frontend front";
-                            content += '\n\tbind *:' + config.haProxyHTTPPort;
-                            if (config.haProxyHTTPSPort) {
-                                content += '\n\tbind :' + config.haProxyHTTPSPort + ' ssl';
-                                frontends.forEach((frontend) => {
-                                    frontend.domains.forEach((domain) => {
-                                        content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
-                                    });
-                                });
-                            }
                         }
-                        frontends.forEach((frontend, index) => {
-                            let rules: string = '';
-                            frontend.domains.forEach((domain) => {
-                                content += '\n\tacl host-index-' + index + ' hdr(host) eq ' + domain;
-                                rules += ' host-index-' + index;
-                            });
-                            frontend.paths.forEach((path) => {
-                                content += '\n\tacl path-prefix-' + index + ' path_beg ' + path;
-                                rules += ' path-prefix-' + index;
-                            });
-                            content += '\n\tuse_backend ' + frontend.backend;
-                            if (rules.length > 0) {
-                                content += ' if' + rules;
-                            }
+                    }
+                    frontends.forEach((frontend, index) => {
+                        let rules: string = '';
+                        frontend.domains.forEach((domain) => {
+                            content += '\n\tacl host-index-' + index + ' hdr(host) eq ' + domain;
+                            rules += ' host-index-' + index;
                         });
-                        const configFilePath: string = config.haProxyFolder + 'frontend';
-                        promisesWrite.push(this.updateFile(sftp, files, configFilePath, content));
+                        frontend.paths.forEach((path) => {
+                            content += '\n\tacl path-prefix-' + index + ' path_beg ' + path;
+                            rules += ' path-prefix-' + index;
+                        });
+                        content += '\n\tuse_backend ' + frontend.backend;
+                        if (rules.length > 0) {
+                            content += ' if' + rules;
+                        }
+                    });
+                    const configFilePath: string = config.haProxyFolder + 'frontend';
+                    filesToWrite.push({path: configFilePath, content: content});
+                    
+                    if (!config.haProxyUseCAT) {
+                        // Write with SFTP
+                        return connection.requestSFTP().then((sftp: any) => {
+                            //Write backends
+                            const writer: IWriter = (filePath, content) => {
+                                return new Promise<void>((resolveWrite) => {
+                                    const writer = sftp.createWriteStream(filePath);
+                                    writer.on('close', () => {
+                                        resolveWrite();
+                                    });
+                                    writer.write(content);
+                                    writer.end();
+                                })
+                            }
+                            filesToWrite.forEach((fileToWrite) => {
+                                promisesWrite.push(this.updateFile(writer, files, fileToWrite.path, fileToWrite.content));
+                            });
+                            return Promise.all(promisesWrite).then((isUpdated: boolean[]) => {
+                                if (isUpdated.find(p => p === true)) {
+                                    // Must reload haproxy
+                                    return connection.execCommand(config.haProxyReloadCommand).then(() => { });
+                                }
+                            });
+                        });
+                    } else {
+                        // Write with SSH directly
+                        const writer: IWriter = (filePath, content) => {
+                            return connection.execCommand("cat <<'EOF' > " + filePath + "\n" + content + "\nEOF").then(() => {});
+                        };
 
                         //Write backends
                         filesToWrite.forEach((fileToWrite) => {
-                            promisesWrite.push(this.updateFile(sftp, files, fileToWrite.path, fileToWrite.content));
+                            promisesWrite.push(this.updateFile(writer, files, fileToWrite.path, fileToWrite.content));
                         });
                         return Promise.all(promisesWrite).then((isUpdated: boolean[]) => {
                             if (isUpdated.find(p => p === true)) {
@@ -138,13 +168,13 @@ export class HAProxy implements IWebService {
                                 return connection.execCommand(config.haProxyReloadCommand).then(() => { });
                             }
                         });
-                    });
+                    }
                 })
             })
         });
     }
 
-    protected updateFile(connectionSFTP: any, files: { [key: string]: boolean }, filePath: string, content: string): Promise<boolean> {
+    protected updateFile(writer: IWriter, files: { [key: string]: boolean }, filePath: string, content: string): Promise<boolean> {
         let promiseCalculation: Promise<boolean> = null;
         const sha = sha256.default(content);
         if (files[filePath]) {
@@ -161,14 +191,7 @@ export class HAProxy implements IWebService {
         return promiseCalculation.then((mustBeUpdated: boolean) => {
             if (mustBeUpdated) {
                 HAProxy.LOGGER.info("Doit mettre à jour %1", filePath);
-                return new Promise<boolean>((resolveWrite) => {
-                    const writer = connectionSFTP.createWriteStream(filePath);
-                    writer.on('close', () => {
-                        resolveWrite(true);
-                    });
-                    writer.write(content);
-                    writer.end();
-                })
+                return writer(filePath, content).then(() => true);
             } else {
                 HAProxy.LOGGER.info("Pas a mettre à jour %1", filePath)
                 return false;
@@ -183,9 +206,9 @@ export class HAProxy implements IWebService {
                     const connection = new ssh.default();
                     connection.connect({
                         host: config.haProxyHost,
-                        password: config.haProxyUsername,
+                        username: config.haProxyUsername,
                         port: config.haProxyPort,
-                        username: config.haProxyPassword,
+                        password: config.haProxyPassword,
                     }).then(() => {
                         resolve(connection);
                     }, (e) => {
@@ -209,4 +232,9 @@ export interface IConfigurationProxy extends IConfiguration {
     haProxyForceHTTPS?: boolean;
     haProxySSLCertificatsPath?: string;
     haProxyReloadCommand: string;
+    haProxyUseCAT?: boolean
+}
+
+interface IWriter {
+    (path: string, content: string): Promise<void>;
 }
