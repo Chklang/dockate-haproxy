@@ -57,29 +57,29 @@ export class HAProxy implements IWebService {
                 }).then(() => {
                     // Prepare all backend files contents
                     db.services.forEach((service) => {
-                        for (const internalPort in service.PORT) {
-                            let contentConf: string = 'backend bk_' + service.NAME + '_' + internalPort;
+                        service.constraints.forEach((constraints) => {
+                            let contentConf: string = 'backend bk_' + service.name + '_' + constraints.order;
                             frontends.push({
-                                backend: 'backend bk_' + service.NAME + '_' + internalPort,
-                                domains: service.domains,
-                                authents: service.authent,
-                                paths: service.paths
+                                backend: 'backend bk_' + service.name + '_' + constraints.order,
+                                domains: constraints.domains,
+                                authents: constraints.authents,
+                                paths: constraints.paths
                             });
-                            service.authent.forEach((authent, index) => {
+                            constraints.authents.forEach((authent, index) => {
                                 contentConf += '\n\tacl AuthOK_ELAO' + index + ' http_auth(' + authent + ')';
                                 contentConf += '\n\thttp-request auth realm ' + authent + ' if !AuthOK_ELAO' + index;
                             });
                             service.nodes.forEach((node, index) => {
-                                contentConf += '\n\tserver srv' + index + ' ' + node.IP + ':' + service.PORT[internalPort];
+                                contentConf += '\n\tserver srv' + index + ' ' + node.IP + ':' + service.ports[constraints.port];
                             });
                             contentConf += '\n';
-                            const configFilename: string = 'backend_' + service.NAME + '_' + internalPort + '.cfg';
+                            const configFilename: string = 'backend_' + service.name + '_' + constraints.order + '.cfg';
                             const configFilePath: string = config.haProxyFolder + configFilename;
                             filesToWrite.push({
                                 path: configFilePath,
                                 content: contentConf
                             });
-                        };
+                        });
                     });
                 }).then(() => {
                     // Write all configs files if necessary
@@ -112,13 +112,13 @@ export class HAProxy implements IWebService {
                     }
                     frontends.forEach((frontend, index) => {
                         let rules: string = '';
-                        frontend.domains.forEach((domain) => {
-                            content += '\n\tacl host-index-' + index + ' hdr(host) eq ' + domain;
-                            rules += ' host-index-' + index;
+                        frontend.domains.forEach((domain, indexDomain) => {
+                            content += '\n\tacl host-index-' + index + '-' + indexDomain + ' hdr(host) eq ' + domain;
+                            rules += ' host-index-' + index + '-' + indexDomain;
                         });
-                        frontend.paths.forEach((path) => {
-                            content += '\n\tacl path-prefix-' + index + ' path_beg ' + path;
-                            rules += ' path-prefix-' + index;
+                        frontend.paths.forEach((path, indexPath) => {
+                            content += '\n\tacl path-prefix-' + index + '-' + indexPath + ' path_beg ' + path;
+                            rules += ' path-prefix-' + index + '-' + indexPath;
                         });
                         content += '\n\tuse_backend ' + frontend.backend;
                         if (rules.length > 0) {
