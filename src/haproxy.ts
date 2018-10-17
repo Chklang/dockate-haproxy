@@ -4,7 +4,7 @@ import { ILogger, LoggerFactory } from '@log4js-universal/logger';
 import { Configuration, IConfiguration, IConfigurationEntry, EType, IGlobalDB, IWebService } from "@dockate/commons";
 
 export class HAProxy implements IWebService {
-    private static LOGGER: ILogger = LoggerFactory.getLogger("dockerproxy.Scheduler");
+    private static LOGGER: ILogger = LoggerFactory.getLogger("dockate-haproxy.HAProxy");
     private sshInstance: Promise<ssh.default> = null;
 
     public stop(): Promise<void> {
