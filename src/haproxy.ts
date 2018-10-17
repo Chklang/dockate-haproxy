@@ -65,10 +65,12 @@ export class HAProxy implements IWebService {
                                 authents: constraints.authents,
                                 paths: constraints.paths
                             });
-                            constraints.authents.forEach((authent, index) => {
-                                contentConf += '\n\tacl AuthOK_ELAO' + index + ' http_auth(' + authent + ')';
-                                contentConf += '\n\thttp-request auth realm ' + authent + ' if !AuthOK_ELAO' + index;
-                            });
+                            if (constraints.authents) {
+                                constraints.authents.forEach((authent, index) => {
+                                    contentConf += '\n\tacl AuthOK_ELAO' + index + ' http_auth(' + authent + ')';
+                                    contentConf += '\n\thttp-request auth realm ' + authent + ' if !AuthOK_ELAO' + index;
+                                });
+                            }
                             service.nodes.forEach((node, index) => {
                                 contentConf += '\n\tserver srv' + index + ' ' + node.IP + ':' + service.ports[constraints.port];
                             });
@@ -94,9 +96,11 @@ export class HAProxy implements IWebService {
                         content += '\nfrontend fronthttps';
                         content += '\n\tbind *:' + config.haProxyHTTPSPort + ' ssl';
                         frontends.forEach((frontend) => {
-                            frontend.domains.forEach((domain) => {
-                                content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
-                            });
+                            if (frontend.domains) {
+                                frontend.domains.forEach((domain) => {
+                                    content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                });
+                            }
                         });
                     } else {
                         content = "frontend front";
@@ -104,22 +108,28 @@ export class HAProxy implements IWebService {
                         if (config.haProxyHTTPSPort) {
                             content += '\n\tbind :' + config.haProxyHTTPSPort + ' ssl';
                             frontends.forEach((frontend) => {
-                                frontend.domains.forEach((domain) => {
-                                    content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
-                                });
+                                if (frontend.domains) {
+                                    frontend.domains.forEach((domain) => {
+                                        content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                    });
+                                }
                             });
                         }
                     }
                     frontends.forEach((frontend, index) => {
                         let rules: string = '';
-                        frontend.domains.forEach((domain, indexDomain) => {
-                            content += '\n\tacl host-index-' + index + '-' + indexDomain + ' hdr(host) eq ' + domain;
-                            rules += ' host-index-' + index + '-' + indexDomain;
-                        });
-                        frontend.paths.forEach((path, indexPath) => {
-                            content += '\n\tacl path-prefix-' + index + '-' + indexPath + ' path_beg ' + path;
-                            rules += ' path-prefix-' + index + '-' + indexPath;
-                        });
+                        if (frontend.domains) {
+                            frontend.domains.forEach((domain, indexDomain) => {
+                                content += '\n\tacl host-index-' + index + '-' + indexDomain + ' hdr(host) eq ' + domain;
+                                rules += ' host-index-' + index + '-' + indexDomain;
+                            });
+                        }
+                        if (frontend.paths) {
+                            frontend.paths.forEach((path, indexPath) => {
+                                content += '\n\tacl path-prefix-' + index + '-' + indexPath + ' path_beg ' + path;
+                                rules += ' path-prefix-' + index + '-' + indexPath;
+                            });
+                        }
                         content += '\n\tuse_backend ' + frontend.backend;
                         if (rules.length > 0) {
                             content += ' if' + rules;
