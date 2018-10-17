@@ -60,7 +60,7 @@ export class HAProxy implements IWebService {
                         service.constraints.forEach((constraints) => {
                             let contentConf: string = 'backend bk_' + service.name + '_' + constraints.order;
                             frontends.push({
-                                backend: 'backend bk_' + service.name + '_' + constraints.order,
+                                backend: 'bk_' + service.name + '_' + constraints.order,
                                 domains: constraints.domains,
                                 authents: constraints.authents,
                                 paths: constraints.paths
@@ -88,6 +88,7 @@ export class HAProxy implements IWebService {
                     const promisesWrite: Promise<boolean>[] = [];
                     //Write frontend
                     let content: string = "";
+                    const certificatsAdded: {[key: string]: boolean} = {};
                     if (config.haProxyHTTPSPort && config.haProxyForceHTTPS) {
                         content = "frontend fronthttp";
                         content += '\n\tbind *:' + config.haProxyHTTPPort;
@@ -98,7 +99,10 @@ export class HAProxy implements IWebService {
                         frontends.forEach((frontend) => {
                             if (frontend.domains) {
                                 frontend.domains.forEach((domain) => {
-                                    content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                    if (!certificatsAdded[domain]) {
+                                        content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                        certificatsAdded[domain] = true;
+                                    }
                                 });
                             }
                         });
@@ -110,7 +114,10 @@ export class HAProxy implements IWebService {
                             frontends.forEach((frontend) => {
                                 if (frontend.domains) {
                                     frontend.domains.forEach((domain) => {
-                                        content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                        if (!certificatsAdded[domain]) {
+                                            content += ' crt ' + config.haProxySSLCertificatsPath + domain + '/' + domain + '.pem';
+                                            certificatsAdded[domain] = true;
+                                        }
                                     });
                                 }
                             });
@@ -135,7 +142,7 @@ export class HAProxy implements IWebService {
                             content += ' if' + rules;
                         }
                     });
-                    const configFilePath: string = config.haProxyFolder + 'frontend';
+                    const configFilePath: string = config.haProxyFolder + 'frontend.cfg';
                     filesToWrite.push({path: configFilePath, content: content});
                     
                     if (!config.haProxyUseCAT) {
