@@ -91,11 +91,11 @@ export class HAProxy implements IWebService {
                     const certificatsAdded: {[key: string]: boolean} = {};
                     if (config.haProxyHTTPSPort && config.haProxyForceHTTPS) {
                         content = "frontend fronthttp";
-                        content += '\n\tbind *:' + config.haProxyHTTPPort;
+                        content += '\n\tbind :' + config.haProxyHTTPPort;
                         content += '\n\thttp-request redirect scheme https';
                         content += '\n';
                         content += '\nfrontend fronthttps';
-                        content += '\n\tbind *:' + config.haProxyHTTPSPort + ' ssl';
+                        content += '\n\tbind :' + config.haProxyHTTPSPort + ' ssl';
                         frontends.forEach((frontend) => {
                             if (frontend.domains) {
                                 frontend.domains.forEach((domain) => {
@@ -108,7 +108,7 @@ export class HAProxy implements IWebService {
                         });
                     } else {
                         content = "frontend front";
-                        content += '\n\tbind *:' + config.haProxyHTTPPort;
+                        content += '\n\tbind :' + config.haProxyHTTPPort;
                         if (config.haProxyHTTPSPort) {
                             content += '\n\tbind :' + config.haProxyHTTPSPort + ' ssl';
                             frontends.forEach((frontend) => {
