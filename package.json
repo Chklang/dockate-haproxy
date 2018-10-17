@@ -1,6 +1,6 @@
 {
   "name": "dockate-haproxy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -16,7 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "@dockate/commons": "^1.0.0",
-    "@dockate/core": "^1.0.0",
+    "@dockate/core": "^1.0.1",
     "@log4js-universal/logger": "^1.0.2",
     "node-ssh": "^5.1.2",
     "sha256": "^0.2.0"
